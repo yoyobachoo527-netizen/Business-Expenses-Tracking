@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
-import '../../providers/leave_provider.dart';
-import '../../../core/constants/app_constants.dart';
-import '../../../core/theme/app_theme.dart';
+import 'package:hr_mobile/core/constants/app_constants.dart';
+import 'package:hr_mobile/core/theme/app_theme.dart';
+import 'package:hr_mobile/presentation/providers/leave_provider.dart';
 
 class LeaveRequestScreen extends StatefulWidget {
   const LeaveRequestScreen({super.key});
@@ -15,52 +15,59 @@ class LeaveRequestScreen extends StatefulWidget {
 
 class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
   final _formKey = GlobalKey<FormState>();
-  String _selectedType = 'conges_payes';
+  String? _selectedType;
   DateTime? _startDate;
   DateTime? _endDate;
-  final _reasonCtrl = TextEditingController();
-  bool _isSubmitting = false;
+  final _reasonController = TextEditingController();
+  final _dateFormat = DateFormat('dd/MM/yyyy', 'fr_FR');
 
   @override
   void dispose() {
-    _reasonCtrl.dispose();
+    _reasonController.dispose();
     super.dispose();
   }
 
-  int _calculateDays() {
+  int get _daysCount {
     if (_startDate == null || _endDate == null) return 0;
-    int days = 0;
-    var current = _startDate!;
+    int count = 0;
+    DateTime current = _startDate!;
     while (!current.isAfter(_endDate!)) {
-      if (current.weekday != DateTime.saturday &&
-          current.weekday != DateTime.sunday) {
-        days++;
+      if (current.weekday != DateTime.saturday && current.weekday != DateTime.sunday) {
+        count++;
       }
       current = current.add(const Duration(days: 1));
     }
-    return days;
+    return count;
   }
 
-  Future<void> _pickDate(bool isStart) async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
+  Future<void> _pickStartDate() async {
+    final date = await showDatePicker(
       context: context,
-      initialDate: isStart ? (now) : (_startDate ?? now),
-      firstDate: now,
-      lastDate: DateTime(now.year + 2),
+      initialDate: _startDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
       locale: const Locale('fr', 'FR'),
     );
-    if (picked != null) {
+    if (date != null) {
       setState(() {
-        if (isStart) {
-          _startDate = picked;
-          if (_endDate != null && _endDate!.isBefore(picked)) {
-            _endDate = null;
-          }
-        } else {
-          _endDate = picked;
+        _startDate = date;
+        if (_endDate != null && _endDate!.isBefore(date)) {
+          _endDate = date;
         }
       });
+    }
+  }
+
+  Future<void> _pickEndDate() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _endDate ?? _startDate ?? DateTime.now(),
+      firstDate: _startDate ?? DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      locale: const Locale('fr', 'FR'),
+    );
+    if (date != null) {
+      setState(() => _endDate = date);
     }
   }
 
@@ -73,183 +80,192 @@ class _LeaveRequestScreenState extends State<LeaveRequestScreen> {
       return;
     }
 
-    setState(() => _isSubmitting = true);
-
-    final fmt = DateFormat('yyyy-MM-dd');
     final success = await context.read<LeaveProvider>().createLeave({
       'type': _selectedType,
-      'startDate': fmt.format(_startDate!),
-      'endDate': fmt.format(_endDate!),
-      'reason': _reasonCtrl.text.trim(),
+      'startDate': _startDate!.toIso8601String(),
+      'endDate': _endDate!.toIso8601String(),
+      'reason': _reasonController.text.trim(),
     });
 
-    setState(() => _isSubmitting = false);
-
-    if (!mounted) return;
-
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Demande de congés envoyée'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      context.go('/leaves');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.read<LeaveProvider>().error ?? 'Erreur'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    if (mounted) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Demande de congé soumise avec succès'),
+            backgroundColor: AppTheme.successColor,
+          ),
+        );
+        context.pop();
+      } else {
+        final error = context.read<LeaveProvider>().error;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error ?? 'Erreur lors de la soumission'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final fmt = DateFormat('dd/MM/yyyy', 'fr_FR');
-    final days = _calculateDays();
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nouvelle demande'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/leaves'),
-        ),
-      ),
+      appBar: AppBar(title: const Text('Nouvelle demande de congé')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Type de congés',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: _selectedType,
-                decoration: const InputDecoration(),
-                items: AppConstants.leaveTypeLabels.entries
-                    .map((e) => DropdownMenuItem(
-                          value: e.key,
-                          child: Text(e.value),
-                        ))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedType = v!),
-              ),
-              const SizedBox(height: 20),
-              const Text('Dates',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DatePickerField(
-                      label: 'Date de début',
-                      value: _startDate != null ? fmt.format(_startDate!) : null,
-                      onTap: () => _pickDate(true),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _DatePickerField(
-                      label: 'Date de fin',
-                      value: _endDate != null ? fmt.format(_endDate!) : null,
-                      onTap: () => _pickDate(false),
-                    ),
-                  ),
-                ],
-              ),
-              if (days > 0) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.schedule, color: AppTheme.primaryColor, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$days jour(s) ouvré(s)',
-                        style: const TextStyle(
-                          color: AppTheme.primaryColor,
-                          fontWeight: FontWeight.w600,
+                      const Text(
+                        'Type de congé',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _selectedType,
+                        decoration: const InputDecoration(
+                          hintText: 'Sélectionner un type',
+                        ),
+                        items: AppConstants.leaveTypeLabels.entries
+                            .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                            .toList(),
+                        onChanged: (value) => setState(() => _selectedType = value),
+                        validator: (value) => value == null ? 'Veuillez sélectionner un type' : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Dates',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: _pickStartDate,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Date de début',
+                                  prefixIcon: Icon(Icons.calendar_today),
+                                ),
+                                child: Text(
+                                  _startDate != null ? _dateFormat.format(_startDate!) : 'Choisir',
+                                  style: TextStyle(
+                                    color: _startDate != null ? const Color(0xFF212121) : const Color(0xFFBDBDBD),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: InkWell(
+                              onTap: _pickEndDate,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Date de fin',
+                                  prefixIcon: Icon(Icons.calendar_today),
+                                ),
+                                child: Text(
+                                  _endDate != null ? _dateFormat.format(_endDate!) : 'Choisir',
+                                  style: TextStyle(
+                                    color: _endDate != null ? const Color(0xFF212121) : const Color(0xFFBDBDBD),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_startDate != null && _endDate != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.secondaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline, color: AppTheme.secondaryColor, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                '$_daysCount jour(s) ouvré(s)',
+                                style: const TextStyle(
+                                  color: AppTheme.secondaryColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Motif (optionnel)',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _reasonController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          hintText: 'Saisissez un motif...',
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-              const SizedBox(height: 20),
-              const Text('Motif (optionnel)',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _reasonCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Précisez le motif de votre demande...',
-                ),
               ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Text('Envoyer la demande'),
+              const SizedBox(height: 24),
+              Consumer<LeaveProvider>(
+                builder: (context, provider, _) {
+                  return SizedBox(
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: provider.isLoading ? null : _submit,
+                      child: provider.isLoading
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            )
+                          : const Text('Soumettre la demande'),
+                    ),
+                  );
+                },
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DatePickerField extends StatelessWidget {
-  final String label;
-  final String? value;
-  final VoidCallback onTap;
-
-  const _DatePickerField(
-      {required this.label, this.value, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE0E0E0)),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                value ?? label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: value != null ? Colors.black87 : Colors.grey.shade500,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
         ),
       ),
     );

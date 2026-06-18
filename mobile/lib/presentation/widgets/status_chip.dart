@@ -1,42 +1,59 @@
 import 'package:flutter/material.dart';
-import '../../core/constants/app_constants.dart';
+import 'package:hr_mobile/core/constants/app_constants.dart';
+import 'package:hr_mobile/core/theme/app_theme.dart';
 
 class StatusChip extends StatelessWidget {
   final String status;
 
   const StatusChip({super.key, required this.status});
 
+  Color get _backgroundColor {
+    switch (status) {
+      case 'pending':
+        return AppTheme.warningColor.withOpacity(0.15);
+      case 'approved':
+        return AppTheme.successColor.withOpacity(0.15);
+      case 'rejected':
+        return AppTheme.errorColor.withOpacity(0.15);
+      case 'cancelled':
+        return Colors.grey.withOpacity(0.15);
+      default:
+        return Colors.grey.withOpacity(0.15);
+    }
+  }
+
+  Color get _textColor {
+    switch (status) {
+      case 'pending':
+        return AppTheme.warningColor;
+      case 'approved':
+        return AppTheme.successColor;
+      case 'rejected':
+        return AppTheme.errorColor;
+      case 'cancelled':
+        return Colors.grey;
+      default:
+        return Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final config = _getConfig(status);
+    final label = AppConstants.statusLabels[status] ?? status;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: config.$1.withOpacity(0.12),
+        color: _backgroundColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: config.$1.withOpacity(0.4)),
       ),
       child: Text(
-        AppConstants.statusLabels[status] ?? status,
+        label,
         style: TextStyle(
-          color: config.$1,
           fontSize: 12,
           fontWeight: FontWeight.w600,
+          color: _textColor,
         ),
       ),
     );
-  }
-
-  (Color, IconData) _getConfig(String status) {
-    switch (status) {
-      case 'approved':
-        return (Colors.green.shade700, Icons.check_circle);
-      case 'rejected':
-        return (Colors.red.shade700, Icons.cancel);
-      case 'cancelled':
-        return (Colors.grey.shade600, Icons.block);
-      default:
-        return (Colors.orange.shade700, Icons.schedule);
-    }
   }
 }

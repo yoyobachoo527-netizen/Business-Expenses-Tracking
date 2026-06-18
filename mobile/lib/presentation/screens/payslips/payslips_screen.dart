@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../providers/payslip_provider.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../data/models/payslip_model.dart';
-import '../../../data/repositories/payslip_repository.dart';
+import 'package:intl/intl.dart';
+import 'package:hr_mobile/core/theme/app_theme.dart';
+import 'package:hr_mobile/data/models/payslip_model.dart';
+import 'package:hr_mobile/data/repositories/payslip_repository.dart';
+import 'package:hr_mobile/presentation/providers/payslip_provider.dart';
 
 class PaySlipsScreen extends StatefulWidget {
   const PaySlipsScreen({super.key});
@@ -15,111 +15,104 @@ class PaySlipsScreen extends StatefulWidget {
 
 class _PaySlipsScreenState extends State<PaySlipsScreen> {
   int? _selectedYear;
+  final _currencyFormat = NumberFormat.currency(locale: 'fr_FR', symbol: '€');
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<PaySlipProvider>().loadPaySlips();
-    });
+    _selectedYear = DateTime.now().year;
+    context.read<PaySlipProvider>().loadPaySlips();
+  }
+
+  List<int> _getAvailableYears(List<PaySlipModel> payslips) {
+    final years = payslips.map((p) => p.year).toSet().toList();
+    years.sort((a, b) => b.compareTo(a));
+    if (years.isEmpty) years.add(DateTime.now().year);
+    return years;
+  }
+
+  void _showPayslipDetails(BuildContext context, PaySlipModel payslip) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _PaySlipDetailSheet(
+        payslip: payslip,
+        currencyFormat: _currencyFormat,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes bulletins de paie'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/dashboard'),
-        ),
-      ),
+      appBar: AppBar(title: const Text('Bulletins de paie')),
       body: Consumer<PaySlipProvider>(
         builder: (context, provider, _) {
           if (provider.isLoading) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final years = provider.payslips
-              .map((p) => p.year)
-              .toSet()
-              .toList()
-            ..sort((a, b) => b.compareTo(a));
-
-          final filtered = _selectedYear == null
-              ? provider.payslips
-              : provider.payslips
-                  .where((p) => p.year == _selectedYear)
-                  .toList();
-
-          if (provider.payslips.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.description, size: 64, color: Colors.grey.shade300),
-                  const SizedBox(height: 16),
-                  Text('Aucun bulletin disponible',
-                      style: TextStyle(
-                          color: Colors.grey.shade500, fontSize: 16)),
-                ],
-              ),
-            );
+          final years = _getAvailableYears(provider.payslips);
+          if (!years.contains(_selectedYear)) {
+            _selectedYear = years.first;
           }
 
-          return Column(
-            children: [
-              if (years.length > 1)
-                Container(
-                  color: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+          final filtered = provider.payslips
+              .where((p) => p.year == _selectedYear)
+              .toList();
+
+          return RefreshIndicator(
+            onRefresh: provider.loadPaySlips,
+            child: Column(
+              children: [
+                // Year filter
+                Padding(
+                  padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      const Text('Année :',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(width: 12),
-                      ...([null, ...years]).map((y) => Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _selectedYear = y),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: _selectedYear == y
-                                      ? AppTheme.primaryColor
-                                      : Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  y?.toString() ?? 'Toutes',
-                                  style: TextStyle(
-                                    color: _selectedYear == y
-                                        ? Colors.white
-                                        : Colors.grey.shade700,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          )),
+                      const Text(
+                        'Année : ',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      DropdownButton<int>(
+                        value: _selectedYear,
+                        items: years
+                            .map((y) => DropdownMenuItem(value: y, child: Text(y.toString())))
+                            .toList(),
+                        onChanged: (y) => setState(() => _selectedYear = y),
+                      ),
                     ],
                   ),
                 ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => provider.loadPaySlips(),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: filtered.length,
-                    itemBuilder: (ctx, i) =>
-                        _PaySlipCard(payslip: filtered[i]),
-                  ),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.description, size: 64, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              const Text('Aucun bulletin disponible'),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final payslip = filtered[index];
+                            return _PaySlipCard(
+                              payslip: payslip,
+                              currencyFormat: _currencyFormat,
+                              onTap: () => _showPayslipDetails(context, payslip),
+                            );
+                          },
+                        ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -129,21 +122,21 @@ class _PaySlipsScreenState extends State<PaySlipsScreen> {
 
 class _PaySlipCard extends StatelessWidget {
   final PaySlipModel payslip;
-  const _PaySlipCard({required this.payslip});
+  final NumberFormat currencyFormat;
+  final VoidCallback onTap;
 
-  void _showDetails(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _PaySlipDetailSheet(payslip: payslip),
-    );
-  }
+  const _PaySlipCard({
+    required this.payslip,
+    required this.currencyFormat,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: () => _showDetails(context),
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -156,10 +149,9 @@ class _PaySlipCard extends StatelessWidget {
                   color: AppTheme.primaryColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.description,
-                    color: AppTheme.primaryColor),
+                child: const Icon(Icons.description_outlined, color: AppTheme.primaryColor),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,93 +159,106 @@ class _PaySlipCard extends StatelessWidget {
                     Text(
                       payslip.monthLabel,
                       style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 15),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: AppTheme.primaryColor,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Net : ${payslip.formattedNet}',
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600),
+                      'Net : ${currencyFormat.format(payslip.netSalary)}',
+                      style: const TextStyle(color: Color(0xFF424242)),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.download_outlined,
-                    color: AppTheme.primaryColor),
-                onPressed: () => _downloadPdf(context),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.grey),
+              const Icon(Icons.chevron_right, color: Color(0xFF9E9E9E)),
             ],
           ),
         ),
       ),
     );
   }
-
-  Future<void> _downloadPdf(BuildContext context) async {
-    try {
-      await PaySlipRepository().downloadPaySlip(payslip.id);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bulletin téléchargé'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur lors du téléchargement'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
 }
 
-class _PaySlipDetailSheet extends StatelessWidget {
+class _PaySlipDetailSheet extends StatefulWidget {
   final PaySlipModel payslip;
-  const _PaySlipDetailSheet({required this.payslip});
+  final NumberFormat currencyFormat;
+
+  const _PaySlipDetailSheet({required this.payslip, required this.currencyFormat});
+
+  @override
+  State<_PaySlipDetailSheet> createState() => _PaySlipDetailSheetState();
+}
+
+class _PaySlipDetailSheetState extends State<_PaySlipDetailSheet> {
+  bool _isDownloading = false;
+
+  Future<void> _download() async {
+    setState(() => _isDownloading = true);
+    try {
+      await PaySlipRepository().downloadPaySlip(widget.payslip.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bulletin téléchargé'),
+            backgroundColor: AppTheme.successColor,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
+    }
+    if (mounted) setState(() => _isDownloading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+    final p = widget.payslip;
+    final fmt = widget.currencyFormat;
+
+    return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(payslip.monthLabel,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold)),
-              IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context)),
-            ],
+          Text(
+            p.monthLabel,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.primaryColor,
+            ),
           ),
+          const SizedBox(height: 20),
+          _DetailRow(label: 'Salaire brut', value: fmt.format(p.grossSalary), isHeader: true),
           const Divider(),
-          _DetailRow('Salaire brut', payslip.formattedGross),
-          _DetailRow('Charges salariales',
-              '- ${payslip.formattedNet}', isNegative: true),
-          _DetailRow('Charges patronales',
-              payslip.formattedNet),
+          _DetailRow(label: 'Cotisations salariales', value: '- ${fmt.format(p.employeeCharges)}'),
+          _DetailRow(label: 'Salaire net', value: fmt.format(p.netSalary), isTotal: true),
           const Divider(),
-          _DetailRow('Salaire net', payslip.formattedNet,
-              isBold: true, color: AppTheme.primaryColor),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.download),
-            label: const Text('Télécharger le bulletin PDF'),
+          _DetailRow(label: 'Charges patronales', value: fmt.format(p.employerCharges)),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _isDownloading ? null : _download,
+              icon: _isDownloading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download),
+              label: const Text('Télécharger le bulletin'),
+            ),
           ),
         ],
       ),
@@ -264,33 +269,39 @@ class _PaySlipDetailSheet extends StatelessWidget {
 class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
-  final bool isBold;
-  final bool isNegative;
-  final Color? color;
+  final bool isHeader;
+  final bool isTotal;
 
-  const _DetailRow(this.label, this.value,
-      {this.isBold = false, this.isNegative = false, this.color});
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    this.isHeader = false,
+    this.isTotal = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: TextStyle(
-                  fontWeight:
-                      isBold ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 14,
-                  color: Colors.grey.shade700)),
-          Text(value,
-              style: TextStyle(
-                fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-                fontSize: 14,
-                color: color ??
-                    (isNegative ? Colors.red.shade600 : Colors.black87),
-              )),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: isHeader || isTotal ? 15 : 14,
+              fontWeight: isHeader || isTotal ? FontWeight.bold : FontWeight.normal,
+              color: isTotal ? AppTheme.primaryColor : const Color(0xFF424242),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: isHeader || isTotal ? 15 : 14,
+              fontWeight: isHeader || isTotal ? FontWeight.bold : FontWeight.normal,
+              color: isTotal ? AppTheme.primaryColor : const Color(0xFF424242),
+            ),
+          ),
         ],
       ),
     );
